@@ -83,8 +83,8 @@
 # Скопируйте template
 cp local.properties.template local.properties
 
-# Откройте local.properties и вставьте ваш DeepSeek API ключ:
-deepseek.api.key=sk-ваш-ключ-здесь
+# Вставьте ваш DeepSeek API ключ:
+Введите свой api_key в ApiKeyProvider.getApiKey() для каждой из платформы
 ```
 
 3. **Запустите приложение:**
