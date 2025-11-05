@@ -1,0 +1,18 @@
+## local.properties - Конфигурация для AI Study проекта
+##
+## Этот файл содержит чувствительные данные и НЕ должен коммититься в Git!
+##
+## ИНСТРУКЦИЯ:
+## 1. Скопируйте этот файл и переименуйте в "local.properties"
+## 2. Замените "YOUR_DEEPSEEK_API_KEY" на ваш реальный API ключ
+## 3. local.properties уже добавлен в .gitignore
+
+## SDK пути (автоматически генерируется Android Studio)
+sdk.dir=/Users/YOUR_USERNAME/Library/Android/sdk
+
+## DeepSeek API Key
+## Получить ключ можно здесь: https://platform.deepseek.com/api_keys
+## Формат: sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+deepseek.api.key=YOUR_DEEPSEEK_API_KEY
+
+## ВАЖНО: Никогда не коммитьте файл с реальным API ключом в Git!
