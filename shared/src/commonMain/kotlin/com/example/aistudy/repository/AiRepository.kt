@@ -5,6 +5,7 @@ import com.example.aistudy.model.ApiMessage
 import com.example.aistudy.model.OpenAIRequest
 import com.example.aistudy.model.OpenAIResponse
 import com.example.aistudy.model.ApiError
+import com.example.aistudy.model.AiStructuredResponse
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.*
@@ -58,10 +59,41 @@ class AiRepository {
         }
 
         return try {
+            val systemPrompt = """
+                Ты — ИИ-агент, который ВСЕГДА отвечает строго в формате JSON.
+                Никаких пояснений, текста или комментариев вне JSON быть не должно.
+                Структура JSON должна быть абсолютно одинаковой для всех ответов, независимо от вопроса пользователя.
+
+                Если данных нет — возвращай пустую строку "", пустой массив [] или null.
+                Никогда не изменяй названия полей и не добавляй новые.
+                Ответ должен быть корректным JSON-объектом, который можно распарсить без ошибок.
+
+                Всегда используй следующую структуру:
+
+                {
+                  "question": "<повтори запрос пользователя>",
+                  "summary": "<краткий, ёмкий ответ>",
+                  "explanation": "<подробное описание или рассуждение>",
+                  "code_example": "<если уместно — пример кода, иначе пустая строка>",
+                  "sources": ["<ссылки на источники, если применимо>"],
+                  "confidence": "<оценка уверенности от 0 до 1>"
+                }
+
+                Пример корректного ответа:
+                {
+                  "question": "Как работает цикл for в Python?",
+                  "summary": "Цикл for в Python используется для итерации по элементам последовательности.",
+                  "explanation": "Цикл for позволяет перебрать элементы списка, строки, диапазона или другого итерируемого объекта. Например, `for x in range(5)` выполняет тело цикла 5 раз, при этом x принимает значения от 0 до 4.",
+                  "code_example": "for x in range(5):\n    print(x)",
+                  "sources": ["https://docs.python.org/3/tutorial/controlflow.html#for-statements"],
+                  "confidence": "0.97"
+                }
+            """.trimIndent()
+
             val request = OpenAIRequest(
                 model = ApiConfig.MODEL,
                 messages = listOf(
-                    ApiMessage(role = "system", content = "You are a helpful assistant."),
+                    ApiMessage(role = "system", content = systemPrompt),
                     ApiMessage(role = "user", content = question)
                 ),
                 temperature = ApiConfig.TEMPERATURE,
@@ -105,6 +137,35 @@ class AiRepository {
             is kotlinx.io.IOException -> Exception("Ошибка сети. Проверьте подключение к интернету.")
             else -> Exception("Неизвестная ошибка: ${e.message ?: "Нет описания"}")
         }
+    }
+
+    /**
+     * Отправляет вопрос в DeepSeek AI и получает структурированный ответ
+     * @param question Вопрос пользователя
+     * @return Структурированный ответ от AI или ошибка
+     */
+    suspend fun askQuestionStructured(question: String): Result<AiStructuredResponse> {
+        val result = askQuestion(question)
+
+        return result.fold(
+            onSuccess = { jsonString ->
+                try {
+                    // Парсим JSON ответ в структурированный формат
+                    val json = Json {
+                        ignoreUnknownKeys = true
+                        isLenient = true
+                    }
+                    val structured = json.decodeFromString<AiStructuredResponse>(jsonString)
+                    Result.success(structured)
+                } catch (e: Exception) {
+                    // Если парсинг не удался, возвращаем ошибку
+                    Result.failure(Exception("Не удалось распарсить ответ от AI: ${e.message}"))
+                }
+            },
+            onFailure = { error ->
+                Result.failure(error)
+            }
+        )
     }
 
     /**

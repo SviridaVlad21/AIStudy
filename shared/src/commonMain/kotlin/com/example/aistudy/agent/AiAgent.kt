@@ -1,6 +1,7 @@
 package com.example.aistudy.agent
 
 import com.example.aistudy.repository.AiRepository
+import com.example.aistudy.model.AiStructuredResponse
 
 /**
  * AI Агент для взаимодействия с DeepSeek API
@@ -32,6 +33,31 @@ class AiAgent {
         }
 
         return repository.askQuestion(question)
+    }
+
+    /**
+     * Отправляет вопрос в AI и получает структурированный ответ
+     * @param question Вопрос пользователя
+     * @return Структурированный ответ от AI
+     * @throws Exception если произошла ошибка
+     */
+    suspend fun askStructured(question: String): AiStructuredResponse {
+        if (question.isBlank()) {
+            throw IllegalArgumentException("Вопрос не может быть пустым")
+        }
+
+        return repository.askQuestionStructured(question).getOrThrow()
+    }
+
+    /**
+     * Безопасная версия askStructured, которая возвращает Result вместо выброса исключения
+     */
+    suspend fun askStructuredSafe(question: String): Result<AiStructuredResponse> {
+        if (question.isBlank()) {
+            return Result.failure(IllegalArgumentException("Вопрос не может быть пустым"))
+        }
+
+        return repository.askQuestionStructured(question)
     }
 
     /**

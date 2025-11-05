@@ -65,12 +65,17 @@ class ChatViewModel : ViewModel() {
             )
         }
 
-        // Отправляем запрос к AI
+        // Отправляем запрос к AI и получаем структурированный ответ
         viewModelScope.launch {
-            val result = aiAgent.askSafe(inputText)
+            val result = aiAgent.askStructuredSafe(inputText)
 
-            result.onSuccess { response ->
-                val aiMessage = Message(text = response, isFromUser = false)
+            result.onSuccess { structuredResponse ->
+                // Создаем сообщение с структурированными данными
+                val aiMessage = Message(
+                    text = structuredResponse.summary,  // Используем краткий ответ как основной текст
+                    isFromUser = false,
+                    structuredData = structuredResponse
+                )
                 _uiState.update {
                     it.copy(
                         messages = it.messages + aiMessage,

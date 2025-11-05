@@ -87,10 +87,14 @@ struct ContentView: View {
         Task {
             do {
                 let agent = AiAgent()
-                let response = try await agent.ask(question: question)
+                let structuredResponse = try await agent.askStructured(question: question)
 
                 await MainActor.run {
-                    let aiMessage = MessageItem(text: response, isFromUser: false)
+                    let aiMessage = MessageItem(
+                        text: structuredResponse.summary,
+                        isFromUser: false,
+                        structuredData: structuredResponse
+                    )
                     messages.append(aiMessage)
                     isLoading = false
                 }
@@ -112,6 +116,13 @@ struct MessageItem: Identifiable {
     let text: String
     let isFromUser: Bool
     let timestamp = Date()
+    let structuredData: AiStructuredResponse?
+
+    init(text: String, isFromUser: Bool, structuredData: AiStructuredResponse? = nil) {
+        self.text = text
+        self.isFromUser = isFromUser
+        self.structuredData = structuredData
+    }
 }
 
 // MARK: - Message Bubble View
@@ -124,22 +135,103 @@ struct MessageBubbleView: View {
                 Spacer()
             }
 
-            VStack(alignment: message.isFromUser ? .trailing : .leading, spacing: 4) {
+            VStack(alignment: message.isFromUser ? .trailing : .leading, spacing: 8) {
                 Text(message.isFromUser ? "Вы" : "AI")
                     .font(.caption)
                     .fontWeight(.bold)
                     .foregroundColor(message.isFromUser ? .blue : .green)
 
-                Text(message.text)
-                    .padding(12)
-                    .background(message.isFromUser ? Color.blue.opacity(0.2) : Color.green.opacity(0.2))
-                    .cornerRadius(12)
+                if message.isFromUser {
+                    // Для пользователя показываем только текст
+                    Text(message.text)
+                        .padding(12)
+                        .background(Color.blue.opacity(0.2))
+                        .cornerRadius(12)
+                } else {
+                    // Для AI показываем структурированные данные
+                    if let data = message.structuredData {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // 1. Вопрос
+                            if !data.question.isEmpty {
+                                StructuredFieldView(label: "Вопрос", value: data.question)
+                            }
+
+                            // 2. Краткий ответ
+                            if !data.summary.isEmpty {
+                                StructuredFieldView(label: "Краткий ответ", value: data.summary, emphasized: true)
+                            }
+
+                            // 3. Подробное объяснение
+                            if !data.explanation.isEmpty {
+                                StructuredFieldView(label: "Подробно", value: data.explanation)
+                            }
+
+                            // 4. Пример кода
+                            if !data.code_example.isEmpty {
+                                StructuredFieldView(label: "Пример кода", value: data.code_example, isCode: true)
+                            }
+
+                            // 5. Источники (ссылки)
+                            if !data.sources.isEmpty {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Источники:")
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+
+                                    ForEach(data.sources, id: \.self) { source in
+                                        if let url = URL(string: source) {
+                                            Link(source, destination: url)
+                                                .font(.caption2)
+                                                .foregroundColor(.blue)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 6. Уверенность
+                            if !data.confidence.isEmpty {
+                                Text("Уверенность: \(data.confidence)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(12)
+                        .background(Color.green.opacity(0.2))
+                        .cornerRadius(12)
+                    } else {
+                        // Если нет структурированных данных, показываем обычный текст
+                        Text(message.text)
+                            .padding(12)
+                            .background(Color.green.opacity(0.2))
+                            .cornerRadius(12)
+                    }
+                }
             }
-            .frame(maxWidth: 280, alignment: message.isFromUser ? .trailing : .leading)
+            .frame(maxWidth: 300, alignment: message.isFromUser ? .trailing : .leading)
 
             if !message.isFromUser {
                 Spacer()
             }
+        }
+    }
+}
+
+// MARK: - Structured Field View
+struct StructuredFieldView: View {
+    let label: String
+    let value: String
+    var emphasized: Bool = false
+    var isCode: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(label):")
+                .font(.caption)
+                .fontWeight(emphasized ? .bold : .semibold)
+
+            Text(value)
+                .font(isCode ? .system(.caption, design: .monospaced) : .body)
+                .fontWeight(emphasized ? .medium : .regular)
         }
     }
 }
