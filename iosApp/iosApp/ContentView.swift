@@ -8,6 +8,9 @@ struct ContentView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
 
+    // История сообщений для API (в формате ApiMessage)
+    @State private var messageHistory: [ApiMessage] = []
+
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
@@ -77,6 +80,7 @@ struct ContentView: View {
             }
         }
 
+        // Добавляем сообщение пользователя в UI
         let userMessage = MessageItem(text: inputText, isFromUser: true)
         messages.append(userMessage)
 
@@ -84,14 +88,24 @@ struct ContentView: View {
         inputText = ""
         isLoading = true
 
+        // Добавляем сообщение пользователя в историю для API
+        messageHistory.append(ApiMessage(role: "user", content: question))
+
         Task {
             do {
                 let agent = AiAgent()
-                let structuredResponse = try await agent.askStructured(question: question)
+
+                // Отправляем запрос с историей
+                let structuredResponse = try await agent.askWithHistory(messageHistory: messageHistory)
 
                 await MainActor.run {
+                    // Добавляем ответ AI в историю
+                    let fullResponse = "{\"agentMessage\":\"\(structuredResponse.agentMessage)\"}"
+                    messageHistory.append(ApiMessage(role: "assistant", content: fullResponse))
+
+                    // Добавляем сообщение в UI
                     let aiMessage = MessageItem(
-                        text: structuredResponse.summary,
+                        text: structuredResponse.agentMessage,
                         isFromUser: false,
                         structuredData: structuredResponse
                     )
@@ -102,6 +116,11 @@ struct ContentView: View {
                 agent.close()
             } catch {
                 await MainActor.run {
+                    // Удаляем последнее сообщение пользователя из истории при ошибке
+                    if !messageHistory.isEmpty {
+                        messageHistory.removeLast()
+                    }
+
                     errorMessage = error.localizedDescription
                     isLoading = false
                 }
@@ -135,77 +154,16 @@ struct MessageBubbleView: View {
                 Spacer()
             }
 
-            VStack(alignment: message.isFromUser ? .trailing : .leading, spacing: 8) {
+            VStack(alignment: message.isFromUser ? .trailing : .leading, spacing: 4) {
                 Text(message.isFromUser ? "Вы" : "AI")
                     .font(.caption)
                     .fontWeight(.bold)
                     .foregroundColor(message.isFromUser ? .blue : .green)
 
-                if message.isFromUser {
-                    // Для пользователя показываем только текст
-                    Text(message.text)
-                        .padding(12)
-                        .background(Color.blue.opacity(0.2))
-                        .cornerRadius(12)
-                } else {
-                    // Для AI показываем структурированные данные
-                    if let data = message.structuredData {
-                        VStack(alignment: .leading, spacing: 8) {
-                            // 1. Вопрос
-                            if !data.question.isEmpty {
-                                StructuredFieldView(label: "Вопрос", value: data.question)
-                            }
-
-                            // 2. Краткий ответ
-                            if !data.summary.isEmpty {
-                                StructuredFieldView(label: "Краткий ответ", value: data.summary, emphasized: true)
-                            }
-
-                            // 3. Подробное объяснение
-                            if !data.explanation.isEmpty {
-                                StructuredFieldView(label: "Подробно", value: data.explanation)
-                            }
-
-                            // 4. Пример кода
-                            if !data.code_example.isEmpty {
-                                StructuredFieldView(label: "Пример кода", value: data.code_example, isCode: true)
-                            }
-
-                            // 5. Источники (ссылки)
-                            if !data.sources.isEmpty {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Источники:")
-                                        .font(.caption)
-                                        .fontWeight(.semibold)
-
-                                    ForEach(data.sources, id: \.self) { source in
-                                        if let url = URL(string: source) {
-                                            Link(source, destination: url)
-                                                .font(.caption2)
-                                                .foregroundColor(.blue)
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 6. Уверенность
-                            if !data.confidence.isEmpty {
-                                Text("Уверенность: \(data.confidence)")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(12)
-                        .background(Color.green.opacity(0.2))
-                        .cornerRadius(12)
-                    } else {
-                        // Если нет структурированных данных, показываем обычный текст
-                        Text(message.text)
-                            .padding(12)
-                            .background(Color.green.opacity(0.2))
-                            .cornerRadius(12)
-                    }
-                }
+                Text(message.text)
+                    .padding(12)
+                    .background(message.isFromUser ? Color.blue.opacity(0.2) : Color.green.opacity(0.2))
+                    .cornerRadius(12)
             }
             .frame(maxWidth: 300, alignment: message.isFromUser ? .trailing : .leading)
 

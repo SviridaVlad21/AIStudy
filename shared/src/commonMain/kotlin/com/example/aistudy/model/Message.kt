@@ -7,12 +7,7 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class AiStructuredResponse(
-    val question: String = "",
-    val summary: String = "",
-    val explanation: String = "",
-    val code_example: String = "",
-    val sources: List<String> = emptyList(),
-    val confidence: String = ""
+    val agentMessage: String = ""
 )
 
 /**

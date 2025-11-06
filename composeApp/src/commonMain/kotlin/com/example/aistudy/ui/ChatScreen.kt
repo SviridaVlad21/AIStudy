@@ -154,91 +154,16 @@ fun MessageBubble(message: Message) {
                     }
                 )
 
-                // Для пользователя показываем только текст
-                if (message.isFromUser) {
-                    Text(
-                        text = message.text,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                } else {
-                    // Для AI показываем структурированные данные
-                    message.structuredData?.let { data ->
-                        // 1. Вопрос (если есть)
-                        if (data.question.isNotEmpty()) {
-                            StructuredField(
-                                label = "Вопрос",
-                                value = data.question
-                            )
-                        }
-
-                        // 2. Краткий ответ
-                        if (data.summary.isNotEmpty()) {
-                            StructuredField(
-                                label = "Краткий ответ",
-                                value = data.summary,
-                                emphasized = true
-                            )
-                        }
-
-                        // 3. Подробное объяснение
-                        if (data.explanation.isNotEmpty()) {
-                            StructuredField(
-                                label = "Подробно",
-                                value = data.explanation
-                            )
-                        }
-
-                        // 4. Пример кода (если есть)
-                        if (data.code_example.isNotEmpty()) {
-                            StructuredField(
-                                label = "Пример кода",
-                                value = data.code_example,
-                                isCode = true
-                            )
-                        }
-
-                        // 5. Источники (ссылки)
-                        if (data.sources.isNotEmpty()) {
-                            Text(
-                                text = "Источники:",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                            data.sources.forEach { source ->
-                                Text(
-                                    text = source,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.clickable {
-                                        try {
-                                            uriHandler.openUri(source)
-                                        } catch (e: Exception) {
-                                            // Игнорируем ошибки открытия ссылки
-                                        }
-                                    }
-                                )
-                            }
-                        }
-
-                        // 6. Уверенность
-                        if (data.confidence.isNotEmpty()) {
-                            Text(
-                                text = "Уверенность: ${data.confidence}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                            )
-                        }
-                    } ?: run {
-                        // Если структурированных данных нет, показываем обычный текст
-                        Text(
-                            text = message.text,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                // Отображаем текст сообщения
+                Text(
+                    text = message.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (message.isFromUser) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSecondaryContainer
                     }
-                }
+                )
             }
         }
     }

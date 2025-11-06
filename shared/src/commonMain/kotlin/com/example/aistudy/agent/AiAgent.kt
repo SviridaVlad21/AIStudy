@@ -2,6 +2,7 @@ package com.example.aistudy.agent
 
 import com.example.aistudy.repository.AiRepository
 import com.example.aistudy.model.AiStructuredResponse
+import com.example.aistudy.model.ApiMessage
 
 /**
  * AI Агент для взаимодействия с DeepSeek API
@@ -58,6 +59,31 @@ class AiAgent {
         }
 
         return repository.askQuestionStructured(question)
+    }
+
+    /**
+     * Отправляет запрос в AI с историей сообщений (multi-round conversation)
+     * @param messageHistory История сообщений (список ApiMessage с role: user/assistant)
+     * @return Структурированный ответ от AI
+     * @throws Exception если произошла ошибка
+     */
+    suspend fun askWithHistory(messageHistory: List<ApiMessage>): AiStructuredResponse {
+        if (messageHistory.isEmpty()) {
+            throw IllegalArgumentException("История сообщений не может быть пустой")
+        }
+
+        return repository.askWithHistory(messageHistory).getOrThrow()
+    }
+
+    /**
+     * Безопасная версия askWithHistory, которая возвращает Result вместо выброса исключения
+     */
+    suspend fun askWithHistorySafe(messageHistory: List<ApiMessage>): Result<AiStructuredResponse> {
+        if (messageHistory.isEmpty()) {
+            return Result.failure(IllegalArgumentException("История сообщений не может быть пустой"))
+        }
+
+        return repository.askWithHistory(messageHistory)
     }
 
     /**
