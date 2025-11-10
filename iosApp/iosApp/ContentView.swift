@@ -95,22 +95,84 @@ struct ContentView: View {
             do {
                 let agent = AiAgent()
 
-                // Отправляем запрос с историей
-                let structuredResponse = try await agent.askWithHistory(messageHistory: messageHistory)
+                // Консультируемся с каждым экспертом
+                let consultingExperts = ExpertType.companion.getConsultingExperts()
+                var successfulExperts: [(ExpertType, AiStructuredResponse)] = []
 
-                await MainActor.run {
-                    // Добавляем ответ AI в историю
-                    let fullResponse = "{\"agentMessage\":\"\(structuredResponse.agentMessage)\"}"
-                    messageHistory.append(ApiMessage(role: "assistant", content: fullResponse))
+                for expert in consultingExperts {
+                    do {
+                        let expertResult = try await agent.askExpert(
+                            messageHistory: messageHistory,
+                            expertType: expert
+                        )
 
-                    // Добавляем сообщение в UI
-                    let aiMessage = MessageItem(
-                        text: structuredResponse.agentMessage,
-                        isFromUser: false,
-                        structuredData: structuredResponse
+                        // Unwrap Result
+                        if let response = try? expertResult.getOrThrow() {
+                            successfulExperts.append((expert, response))
+
+                            await MainActor.run {
+                                // Добавляем ответ эксперта в UI
+                                let expertMessage = MessageItem(
+                                    text: response.agentMessage,
+                                    isFromUser: false,
+                                    structuredData: response,
+                                    expertType: expert
+                                )
+                                messages.append(expertMessage)
+
+                                // Добавляем ответ эксперта в историю
+                                let expertResponse = "{\"agentMessage\":\"\(response.agentMessage)\"}"
+                                messageHistory.append(ApiMessage(role: "assistant", content: expertResponse))
+                            }
+                        }
+                    } catch {
+                        // Логируем ошибку, но продолжаем с другими экспертами
+                        await MainActor.run {
+                            errorMessage = "Ошибка от \(expert.getDisplayName()): \(error.localizedDescription)"
+                        }
+                    }
+                }
+
+                // Если есть хотя бы один успешный ответ, генерируем общий вывод
+                if !successfulExperts.isEmpty {
+                    let summaryResult = try await agent.generateSummary(
+                        messageHistory: messageHistory,
+                        expertResponses: successfulExperts.map { KotlinPair(first: $0.0, second: $0.1) }
                     )
-                    messages.append(aiMessage)
-                    isLoading = false
+
+                    if let summaryResponse = try? summaryResult.getOrThrow() {
+                        await MainActor.run {
+                            // Добавляем общий вывод в UI
+                            let summaryMessage = MessageItem(
+                                text: summaryResponse.agentMessage,
+                                isFromUser: false,
+                                structuredData: summaryResponse,
+                                expertType: ExpertType.summary
+                            )
+                            messages.append(summaryMessage)
+
+                            // Добавляем общий вывод в историю
+                            let summaryResponseJson = "{\"agentMessage\":\"\(summaryResponse.agentMessage)\"}"
+                            messageHistory.append(ApiMessage(role: "assistant", content: summaryResponseJson))
+
+                            isLoading = false
+                        }
+                    } else {
+                        await MainActor.run {
+                            errorMessage = "Ошибка при формировании общего вывода"
+                            isLoading = false
+                        }
+                    }
+                } else {
+                    await MainActor.run {
+                        // Удаляем последнее сообщение пользователя из истории при полной ошибке
+                        if !messageHistory.isEmpty {
+                            messageHistory.removeLast()
+                        }
+
+                        errorMessage = "Не удалось получить ответы от экспертов"
+                        isLoading = false
+                    }
                 }
 
                 agent.close()
@@ -136,11 +198,13 @@ struct MessageItem: Identifiable {
     let isFromUser: Bool
     let timestamp = Date()
     let structuredData: AiStructuredResponse?
+    let expertType: ExpertType?
 
-    init(text: String, isFromUser: Bool, structuredData: AiStructuredResponse? = nil) {
+    init(text: String, isFromUser: Bool, structuredData: AiStructuredResponse? = nil, expertType: ExpertType? = nil) {
         self.text = text
         self.isFromUser = isFromUser
         self.structuredData = structuredData
+        self.expertType = expertType
     }
 }
 
@@ -155,7 +219,7 @@ struct MessageBubbleView: View {
             }
 
             VStack(alignment: message.isFromUser ? .trailing : .leading, spacing: 4) {
-                Text(message.isFromUser ? "Вы" : "AI")
+                Text(message.isFromUser ? "Вы" : (message.expertType?.getDisplayName() ?? "AI"))
                     .font(.caption)
                     .fontWeight(.bold)
                     .foregroundColor(message.isFromUser ? .blue : .green)

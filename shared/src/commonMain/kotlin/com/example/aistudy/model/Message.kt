@@ -18,7 +18,9 @@ data class Message(
     val isFromUser: Boolean,
     val timestamp: Long = System.currentTimeMillis(),
     // Структурированные данные для ответов AI
-    val structuredData: AiStructuredResponse? = null
+    val structuredData: AiStructuredResponse? = null,
+    // Тип эксперта, который ответил (null для сообщений пользователя)
+    val expertType: ExpertType? = null
 )
 
 /**

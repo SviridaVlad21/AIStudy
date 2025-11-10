@@ -202,6 +202,19 @@ class AiRepository {
      * @return Структурированный ответ от AI или ошибка
      */
     suspend fun askWithHistory(messageHistory: List<ApiMessage>): Result<AiStructuredResponse> {
+        return askWithHistoryAndPrompt(messageHistory, systemPrompt)
+    }
+
+    /**
+     * Отправляет запрос в DeepSeek AI с кастомным system prompt и историей сообщений
+     * @param messageHistory История сообщений (список ApiMessage с role: user/assistant)
+     * @param customSystemPrompt Кастомный system prompt для специфической роли (например, для эксперта)
+     * @return Структурированный ответ от AI или ошибка
+     */
+    suspend fun askWithHistoryAndPrompt(
+        messageHistory: List<ApiMessage>,
+        customSystemPrompt: String
+    ): Result<AiStructuredResponse> {
         // Проверка, что API ключ установлен
         if (!ApiConfig.isConfigured()) {
             return Result.failure(Exception("API ключ не настроен. Установите deepseek.api.key в local.properties"))
@@ -210,7 +223,7 @@ class AiRepository {
         return try {
             // Формируем список сообщений: system промпт + история
             val messages =
-                listOf(ApiMessage(role = "system", content = systemPrompt)) + messageHistory
+                listOf(ApiMessage(role = "system", content = customSystemPrompt)) + messageHistory
 
             val request = OpenAIRequest(
                 model = ApiConfig.MODEL,

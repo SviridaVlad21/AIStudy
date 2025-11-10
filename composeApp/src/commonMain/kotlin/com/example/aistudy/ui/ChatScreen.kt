@@ -142,9 +142,13 @@ fun MessageBubble(message: Message) {
                 modifier = Modifier.padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Заголовок (Вы или AI)
+                // Заголовок (Вы или тип эксперта)
                 Text(
-                    text = if (message.isFromUser) "Вы" else "AI",
+                    text = if (message.isFromUser) {
+                        "Вы"
+                    } else {
+                        message.expertType?.getDisplayName() ?: "AI"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = if (message.isFromUser) {

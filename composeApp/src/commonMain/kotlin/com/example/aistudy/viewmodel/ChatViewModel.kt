@@ -7,6 +7,8 @@ import com.example.aistudy.config.ApiConfig
 import com.example.aistudy.config.ApiKeyProvider
 import com.example.aistudy.model.Message
 import com.example.aistudy.model.ApiMessage
+import com.example.aistudy.model.ExpertType
+import com.example.aistudy.model.AiStructuredResponse
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,7 +55,9 @@ class ChatViewModel : ViewModel() {
     }
 
     /**
-     * Отправка сообщения в AI с учетом истории
+     * Отправка сообщения в AI с консультацией экспертов
+     * Каждый вопрос проходит через трёх экспертов: Тимлид, Дизайнер, Аналитик
+     * После чего формируется Общий вывод
      */
     fun sendMessage() {
         val inputText = _uiState.value.inputText.trim()
@@ -73,36 +77,80 @@ class ChatViewModel : ViewModel() {
         // Добавляем сообщение пользователя в историю для API
         messageHistory.add(ApiMessage(role = "user", content = inputText))
 
-        // Отправляем запрос к AI с историей
+        // Консультируемся с экспертами
         viewModelScope.launch {
-            val result = aiAgent.askWithHistorySafe(messageHistory.toList())
+            val expertResults = aiAgent.consultExperts(messageHistory.toList())
+            val successfulExperts = mutableListOf<Pair<ExpertType, AiStructuredResponse>>()
 
-            result.onSuccess { structuredResponse ->
-                // Добавляем ответ AI в историю
-                val fullResponse = "{\"agentMessage\":\"${structuredResponse.agentMessage}\"}"
-                messageHistory.add(ApiMessage(role = "assistant", content = fullResponse))
+            // Обрабатываем результаты от каждого эксперта
+            for ((expertType, result) in expertResults) {
+                result.onSuccess { structuredResponse ->
+                    successfulExperts.add(expertType to structuredResponse)
 
-                // Создаем сообщение с структурированными данными для UI
-                val aiMessage = Message(
-                    text = structuredResponse.agentMessage,
-                    isFromUser = false,
-                    structuredData = structuredResponse
-                )
-                _uiState.update {
-                    it.copy(
-                        messages = it.messages + aiMessage,
-                        isLoading = false
+                    // Добавляем ответ эксперта в UI
+                    val expertMessage = Message(
+                        text = structuredResponse.agentMessage,
+                        isFromUser = false,
+                        structuredData = structuredResponse,
+                        expertType = expertType
                     )
+                    _uiState.update {
+                        it.copy(messages = it.messages + expertMessage)
+                    }
+
+                    // Добавляем ответ эксперта в историю
+                    val expertResponse = "{\"agentMessage\":\"${structuredResponse.agentMessage}\"}"
+                    messageHistory.add(ApiMessage(role = "assistant", content = expertResponse))
+                }.onFailure { error ->
+                    // Логируем ошибку, но продолжаем с другими экспертами
+                    _uiState.update {
+                        it.copy(error = "Ошибка от ${expertType.getDisplayName()}: ${error.message}")
+                    }
                 }
-            }.onFailure { error ->
-                // Удаляем последнее сообщение пользователя из истории при ошибке
+            }
+
+            // Если есть хотя бы один успешный ответ, генерируем общий вывод
+            if (successfulExperts.isNotEmpty()) {
+                val summaryResult = aiAgent.generateSummary(
+                    messageHistory.toList(),
+                    successfulExperts
+                )
+
+                summaryResult.onSuccess { summaryResponse ->
+                    // Добавляем общий вывод в UI
+                    val summaryMessage = Message(
+                        text = summaryResponse.agentMessage,
+                        isFromUser = false,
+                        structuredData = summaryResponse,
+                        expertType = ExpertType.SUMMARY
+                    )
+                    _uiState.update {
+                        it.copy(
+                            messages = it.messages + summaryMessage,
+                            isLoading = false
+                        )
+                    }
+
+                    // Добавляем общий вывод в историю
+                    val summaryResponseJson = "{\"agentMessage\":\"${summaryResponse.agentMessage}\"}"
+                    messageHistory.add(ApiMessage(role = "assistant", content = summaryResponseJson))
+                }.onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            error = "Ошибка при формировании общего вывода: ${error.message}",
+                            isLoading = false
+                        )
+                    }
+                }
+            } else {
+                // Удаляем последнее сообщение пользователя из истории при полной ошибке
                 if (messageHistory.isNotEmpty()) {
                     messageHistory.removeAt(messageHistory.size - 1)
                 }
 
                 _uiState.update {
                     it.copy(
-                        error = error.message ?: "Неизвестная ошибка",
+                        error = "Не удалось получить ответы от экспертов",
                         isLoading = false
                     )
                 }

@@ -3,6 +3,7 @@ package com.example.aistudy.agent
 import com.example.aistudy.repository.AiRepository
 import com.example.aistudy.model.AiStructuredResponse
 import com.example.aistudy.model.ApiMessage
+import com.example.aistudy.model.ExpertType
 
 /**
  * AI Агент для взаимодействия с DeepSeek API
@@ -84,6 +85,88 @@ class AiAgent {
         }
 
         return repository.askWithHistory(messageHistory)
+    }
+
+    /**
+     * Получает ответ от конкретного эксперта
+     * @param messageHistory История сообщений
+     * @param expertType Тип эксперта
+     * @return Структурированный ответ от эксперта
+     */
+    suspend fun askExpert(
+        messageHistory: List<ApiMessage>,
+        expertType: ExpertType
+    ): Result<AiStructuredResponse> {
+        if (messageHistory.isEmpty()) {
+            return Result.failure(IllegalArgumentException("История сообщений не может быть пустой"))
+        }
+
+        val expertPrompt = expertType.getSystemPrompt()
+        return repository.askWithHistoryAndPrompt(messageHistory, expertPrompt)
+    }
+
+    /**
+     * Консультация со всеми экспертами
+     * Возвращает список пар: тип эксперта и его ответ
+     * @param messageHistory История сообщений
+     * @return Список результатов от каждого эксперта
+     */
+    suspend fun consultExperts(
+        messageHistory: List<ApiMessage>
+    ): List<Pair<ExpertType, Result<AiStructuredResponse>>> {
+        if (messageHistory.isEmpty()) {
+            return emptyList()
+        }
+
+        val consultingExperts = ExpertType.getConsultingExperts()
+        val results = mutableListOf<Pair<ExpertType, Result<AiStructuredResponse>>>()
+
+        // Получаем ответы от каждого эксперта последовательно
+        for (expert in consultingExperts) {
+            val result = askExpert(messageHistory, expert)
+            results.add(expert to result)
+        }
+
+        return results
+    }
+
+    /**
+     * Генерирует общий вывод на основе ответов всех экспертов
+     * @param messageHistory История сообщений
+     * @param expertResponses Ответы от экспертов
+     * @return Общий вывод
+     */
+    suspend fun generateSummary(
+        messageHistory: List<ApiMessage>,
+        expertResponses: List<Pair<ExpertType, AiStructuredResponse>>
+    ): Result<AiStructuredResponse> {
+        if (expertResponses.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Нет ответов от экспертов для создания общего вывода"))
+        }
+
+        // Находим последний вопрос пользователя
+        val lastUserMessage = messageHistory.lastOrNull { it.role == "user" }
+            ?: return Result.failure(IllegalArgumentException("Не найден вопрос пользователя"))
+
+        // Формируем компактную историю: только последний вопрос и ответы экспертов
+        val summaryHistory = listOf(
+            lastUserMessage,
+            ApiMessage(
+                role = "assistant",
+                content = buildString {
+                    append("Получены ответы от трёх экспертов:\n\n")
+                    expertResponses.forEach { (expert, response) ->
+                        append("${expert.getDisplayName()}: ${response.agentMessage}\n\n")
+                    }
+                }
+            ),
+            ApiMessage(
+                role = "user",
+                content = "На основе этих трёх мнений сформируй краткий общий вывод"
+            )
+        )
+
+        return repository.askWithHistoryAndPrompt(summaryHistory, ExpertType.SUMMARY.getSystemPrompt())
     }
 
     /**
