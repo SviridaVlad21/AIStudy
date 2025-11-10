@@ -55,9 +55,7 @@ class ChatViewModel : ViewModel() {
     }
 
     /**
-     * Отправка сообщения в AI с консультацией экспертов
-     * Каждый вопрос проходит через трёх экспертов: Тимлид, Дизайнер, Аналитик
-     * После чего формируется Общий вывод
+     * Отправка сообщения в AI с получением 3 ответов с разными температурами
      */
     fun sendMessage() {
         val inputText = _uiState.value.inputText.trim()
@@ -77,71 +75,46 @@ class ChatViewModel : ViewModel() {
         // Добавляем сообщение пользователя в историю для API
         messageHistory.add(ApiMessage(role = "user", content = inputText))
 
-        // Консультируемся с экспертами
+        // Температуры для получения разных ответов
+        val temperatures = listOf(0.0, 0.7, 1.0)
+
+        // Отправляем запросы к AI с разными температурами
         viewModelScope.launch {
-            val expertResults = aiAgent.consultExperts(messageHistory.toList())
-            val successfulExperts = mutableListOf<Pair<ExpertType, AiStructuredResponse>>()
+            val successfulResponses = mutableListOf<Pair<Double, AiStructuredResponse>>()
 
-            // Обрабатываем результаты от каждого эксперта
-            for ((expertType, result) in expertResults) {
+            for (temperature in temperatures) {
+                val result = aiAgent.askWithTemperatureSafe(messageHistory.toList(), temperature)
+
                 result.onSuccess { structuredResponse ->
-                    successfulExperts.add(expertType to structuredResponse)
+                    successfulResponses.add(temperature to structuredResponse)
 
-                    // Добавляем ответ эксперта в UI
-                    val expertMessage = Message(
+                    // Добавляем ответ AI в UI
+                    val aiMessage = Message(
                         text = structuredResponse.agentMessage,
                         isFromUser = false,
                         structuredData = structuredResponse,
-                        expertType = expertType
+                        temperature = temperature
                     )
                     _uiState.update {
-                        it.copy(messages = it.messages + expertMessage)
+                        it.copy(messages = it.messages + aiMessage)
                     }
-
-                    // Добавляем ответ эксперта в историю
-                    val expertResponse = "{\"agentMessage\":\"${structuredResponse.agentMessage}\"}"
-                    messageHistory.add(ApiMessage(role = "assistant", content = expertResponse))
                 }.onFailure { error ->
-                    // Логируем ошибку, но продолжаем с другими экспертами
                     _uiState.update {
-                        it.copy(error = "Ошибка от ${expertType.getDisplayName()}: ${error.message}")
+                        it.copy(error = "Ошибка для температуры $temperature: ${error.message}")
                     }
                 }
             }
 
-            // Если есть хотя бы один успешный ответ, генерируем общий вывод
-            if (successfulExperts.isNotEmpty()) {
-                val summaryResult = aiAgent.generateSummary(
-                    messageHistory.toList(),
-                    successfulExperts
-                )
+            // Если получен хотя бы один ответ, добавляем последний в историю
+            if (successfulResponses.isNotEmpty()) {
+                // Берем ответ с температурой 0.7 как основной для истории
+                val mainResponse = successfulResponses.find { it.first == 0.7 }
+                    ?: successfulResponses.first()
 
-                summaryResult.onSuccess { summaryResponse ->
-                    // Добавляем общий вывод в UI
-                    val summaryMessage = Message(
-                        text = summaryResponse.agentMessage,
-                        isFromUser = false,
-                        structuredData = summaryResponse,
-                        expertType = ExpertType.SUMMARY
-                    )
-                    _uiState.update {
-                        it.copy(
-                            messages = it.messages + summaryMessage,
-                            isLoading = false
-                        )
-                    }
+                val fullResponse = "{\"agentMessage\":\"${mainResponse.second.agentMessage}\"}"
+                messageHistory.add(ApiMessage(role = "assistant", content = fullResponse))
 
-                    // Добавляем общий вывод в историю
-                    val summaryResponseJson = "{\"agentMessage\":\"${summaryResponse.agentMessage}\"}"
-                    messageHistory.add(ApiMessage(role = "assistant", content = summaryResponseJson))
-                }.onFailure { error ->
-                    _uiState.update {
-                        it.copy(
-                            error = "Ошибка при формировании общего вывода: ${error.message}",
-                            isLoading = false
-                        )
-                    }
-                }
+                _uiState.update { it.copy(isLoading = false) }
             } else {
                 // Удаляем последнее сообщение пользователя из истории при полной ошибке
                 if (messageHistory.isNotEmpty()) {
@@ -150,7 +123,7 @@ class ChatViewModel : ViewModel() {
 
                 _uiState.update {
                     it.copy(
-                        error = "Не удалось получить ответы от экспертов",
+                        error = "Не удалось получить ни одного ответа",
                         isLoading = false
                     )
                 }

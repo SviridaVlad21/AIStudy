@@ -88,6 +88,23 @@ class AiAgent {
     }
 
     /**
+     * Отправляет запрос в AI с указанной температурой
+     * @param messageHistory История сообщений
+     * @param temperature Температура для генерации (0.0 - детерминированный, 1.0 - креативный)
+     * @return Структурированный ответ от AI
+     */
+    suspend fun askWithTemperatureSafe(
+        messageHistory: List<ApiMessage>,
+        temperature: Double
+    ): Result<AiStructuredResponse> {
+        if (messageHistory.isEmpty()) {
+            return Result.failure(IllegalArgumentException("История сообщений не может быть пустой"))
+        }
+
+        return repository.askWithHistoryAndTemperature(messageHistory, temperature)
+    }
+
+    /**
      * Получает ответ от конкретного эксперта
      * @param messageHistory История сообщений
      * @param expertType Тип эксперта

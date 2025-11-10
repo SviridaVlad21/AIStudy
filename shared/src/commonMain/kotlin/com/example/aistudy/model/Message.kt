@@ -20,7 +20,9 @@ data class Message(
     // Структурированные данные для ответов AI
     val structuredData: AiStructuredResponse? = null,
     // Тип эксперта, который ответил (null для сообщений пользователя)
-    val expertType: ExpertType? = null
+    val expertType: ExpertType? = null,
+    // Температура, с которой был получен ответ (null для сообщений пользователя)
+    val temperature: Double? = null
 )
 
 /**

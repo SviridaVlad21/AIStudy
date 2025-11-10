@@ -206,6 +206,19 @@ class AiRepository {
     }
 
     /**
+     * Отправляет запрос в DeepSeek AI с указанной температурой
+     * @param messageHistory История сообщений (список ApiMessage с role: user/assistant)
+     * @param temperature Температура для генерации (0.0 - детерминированный, 1.0 - креативный)
+     * @return Структурированный ответ от AI или ошибка
+     */
+    suspend fun askWithHistoryAndTemperature(
+        messageHistory: List<ApiMessage>,
+        temperature: Double
+    ): Result<AiStructuredResponse> {
+        return askWithHistoryPromptAndTemperature(messageHistory, systemPrompt, temperature)
+    }
+
+    /**
      * Отправляет запрос в DeepSeek AI с кастомным system prompt и историей сообщений
      * @param messageHistory История сообщений (список ApiMessage с role: user/assistant)
      * @param customSystemPrompt Кастомный system prompt для специфической роли (например, для эксперта)
@@ -214,6 +227,21 @@ class AiRepository {
     suspend fun askWithHistoryAndPrompt(
         messageHistory: List<ApiMessage>,
         customSystemPrompt: String
+    ): Result<AiStructuredResponse> {
+        return askWithHistoryPromptAndTemperature(messageHistory, customSystemPrompt, ApiConfig.TEMPERATURE)
+    }
+
+    /**
+     * Отправляет запрос в DeepSeek AI с кастомным system prompt, историей сообщений и температурой
+     * @param messageHistory История сообщений (список ApiMessage с role: user/assistant)
+     * @param customSystemPrompt Кастомный system prompt для специфической роли (например, для эксперта)
+     * @param temperature Температура для генерации (0.0 - детерминированный, 1.0 - креативный)
+     * @return Структурированный ответ от AI или ошибка
+     */
+    private suspend fun askWithHistoryPromptAndTemperature(
+        messageHistory: List<ApiMessage>,
+        customSystemPrompt: String,
+        temperature: Double
     ): Result<AiStructuredResponse> {
         // Проверка, что API ключ установлен
         if (!ApiConfig.isConfigured()) {
@@ -228,7 +256,7 @@ class AiRepository {
             val request = OpenAIRequest(
                 model = ApiConfig.MODEL,
                 messages = messages,
-                temperature = ApiConfig.TEMPERATURE,
+                temperature = temperature,
                 maxTokens = ApiConfig.MAX_TOKENS
             )
 

@@ -95,73 +95,46 @@ struct ContentView: View {
             do {
                 let agent = AiAgent()
 
-                // Консультируемся с каждым экспертом
-                let consultingExperts = ExpertType.companion.getConsultingExperts()
-                var successfulExperts: [(ExpertType, AiStructuredResponse)] = []
+                // Температуры для получения разных ответов
+                let temperatures: [Double] = [0.0, 0.7, 1.0]
+                var successfulResponses: [(Double, AiStructuredResponse)] = []
 
-                for expert in consultingExperts {
+                // Получаем ответы для каждой температуры
+                for temperature in temperatures {
                     do {
-                        let expertResult = try await agent.askExpert(
-                            messageHistory: messageHistory,
-                            expertType: expert
-                        )
+                        let result = try await agent.askWithTemperatureSafe(messageHistory: messageHistory, temperature: temperature)
 
-                        // Unwrap Result
-                        if let response = try? expertResult.getOrThrow() {
-                            successfulExperts.append((expert, response))
+                        if let response = try? result.getOrThrow() {
+                            successfulResponses.append((temperature, response))
 
                             await MainActor.run {
-                                // Добавляем ответ эксперта в UI
-                                let expertMessage = MessageItem(
+                                // Добавляем ответ AI в UI
+                                let aiMessage = MessageItem(
                                     text: response.agentMessage,
                                     isFromUser: false,
                                     structuredData: response,
-                                    expertType: expert
+                                    temperature: temperature
                                 )
-                                messages.append(expertMessage)
-
-                                // Добавляем ответ эксперта в историю
-                                let expertResponse = "{\"agentMessage\":\"\(response.agentMessage)\"}"
-                                messageHistory.append(ApiMessage(role: "assistant", content: expertResponse))
+                                messages.append(aiMessage)
                             }
                         }
                     } catch {
-                        // Логируем ошибку, но продолжаем с другими экспертами
                         await MainActor.run {
-                            errorMessage = "Ошибка от \(expert.getDisplayName()): \(error.localizedDescription)"
+                            errorMessage = "Ошибка для температуры \(temperature): \(error.localizedDescription)"
                         }
                     }
                 }
 
-                // Если есть хотя бы один успешный ответ, генерируем общий вывод
-                if !successfulExperts.isEmpty {
-                    let summaryResult = try await agent.generateSummary(
-                        messageHistory: messageHistory,
-                        expertResponses: successfulExperts.map { KotlinPair(first: $0.0, second: $0.1) }
-                    )
+                // Если получен хотя бы один ответ, добавляем основной в историю
+                if !successfulResponses.isEmpty {
+                    await MainActor.run {
+                        // Берем ответ с температурой 0.7 как основной для истории
+                        let mainResponse = successfulResponses.first(where: { $0.0 == 0.7 }) ?? successfulResponses[0]
 
-                    if let summaryResponse = try? summaryResult.getOrThrow() {
-                        await MainActor.run {
-                            // Добавляем общий вывод в UI
-                            let summaryMessage = MessageItem(
-                                text: summaryResponse.agentMessage,
-                                isFromUser: false,
-                                structuredData: summaryResponse,
-                                expertType: ExpertType.summary
-                            )
-                            messages.append(summaryMessage)
+                        let fullResponse = "{\"agentMessage\":\"\(mainResponse.1.agentMessage)\"}"
+                        messageHistory.append(ApiMessage(role: "assistant", content: fullResponse))
 
-                            // Добавляем общий вывод в историю
-                            let summaryResponseJson = "{\"agentMessage\":\"\(summaryResponse.agentMessage)\"}"
-                            messageHistory.append(ApiMessage(role: "assistant", content: summaryResponseJson))
-
-                            isLoading = false
-                        }
-                    } else {
-                        await MainActor.run {
-                            errorMessage = "Ошибка при формировании общего вывода"
-                            isLoading = false
-                        }
+                        isLoading = false
                     }
                 } else {
                     await MainActor.run {
@@ -170,7 +143,7 @@ struct ContentView: View {
                             messageHistory.removeLast()
                         }
 
-                        errorMessage = "Не удалось получить ответы от экспертов"
+                        errorMessage = "Не удалось получить ни одного ответа"
                         isLoading = false
                     }
                 }
@@ -199,12 +172,14 @@ struct MessageItem: Identifiable {
     let timestamp = Date()
     let structuredData: AiStructuredResponse?
     let expertType: ExpertType?
+    let temperature: Double?
 
-    init(text: String, isFromUser: Bool, structuredData: AiStructuredResponse? = nil, expertType: ExpertType? = nil) {
+    init(text: String, isFromUser: Bool, structuredData: AiStructuredResponse? = nil, expertType: ExpertType? = nil, temperature: Double? = nil) {
         self.text = text
         self.isFromUser = isFromUser
         self.structuredData = structuredData
         self.expertType = expertType
+        self.temperature = temperature
     }
 }
 
@@ -219,7 +194,17 @@ struct MessageBubbleView: View {
             }
 
             VStack(alignment: message.isFromUser ? .trailing : .leading, spacing: 4) {
-                Text(message.isFromUser ? "Вы" : (message.expertType?.getDisplayName() ?? "AI"))
+                Text({
+                    if message.isFromUser {
+                        return "Вы"
+                    } else {
+                        let label = message.expertType?.getDisplayName() ?? "AI"
+                        if let temp = message.temperature {
+                            return "\(label) (температура: \(temp))"
+                        }
+                        return label
+                    }
+                }())
                     .font(.caption)
                     .fontWeight(.bold)
                     .foregroundColor(message.isFromUser ? .blue : .green)
