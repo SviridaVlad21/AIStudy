@@ -171,6 +171,19 @@ fun MessageBubble(message: Message) {
                         MaterialTheme.colorScheme.onSecondaryContainer
                     }
                 )
+
+                // Отображаем информацию о токенах для сообщений от AI
+                if (!message.isFromUser) {
+                    val structuredData = message.structuredData
+                    val usage = structuredData?.usage
+                    if (usage != null) {
+                        Text(
+                            text = "Токены: ${usage.completionTokens} (ответ) + ${usage.promptTokens} (запрос) = ${usage.totalTokens}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                        )
+                    }
+                }
             }
         }
     }

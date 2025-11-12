@@ -1,13 +1,15 @@
 package com.example.aistudy.model
 
 import kotlinx.serialization.Serializable
+import com.example.aistudy.model.Usage
 
 /**
  * Структурированный ответ от AI в формате JSON
  */
 @Serializable
 data class AiStructuredResponse(
-    val agentMessage: String = ""
+    val agentMessage: String = "",
+    val usage: Usage? = null
 )
 
 /**
@@ -16,7 +18,7 @@ data class AiStructuredResponse(
 data class Message(
     val text: String,
     val isFromUser: Boolean,
-    val timestamp: Long = System.currentTimeMillis(),
+    val timestamp: Long = 0L,
     // Структурированные данные для ответов AI
     val structuredData: AiStructuredResponse? = null,
     // Тип эксперта, который ответил (null для сообщений пользователя)

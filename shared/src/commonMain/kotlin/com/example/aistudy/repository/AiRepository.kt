@@ -278,7 +278,9 @@ class AiRepository {
                             isLenient = true
                         }
                         val structured = json.decodeFromString<AiStructuredResponse>(answer)
-                        Result.success(structured)
+                        // Добавляем информацию о токенах из ответа API
+                        val structuredWithUsage = structured.copy(usage = openAIResponse.usage)
+                        Result.success(structuredWithUsage)
                     } catch (e: Exception) {
                         Result.failure(Exception("Не удалось распарсить ответ от AI: ${e.message}"))
                     }
