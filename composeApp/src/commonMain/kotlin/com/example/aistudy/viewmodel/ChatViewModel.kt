@@ -7,7 +7,6 @@ import com.example.aistudy.config.ApiConfig
 import com.example.aistudy.config.ApiKeyProvider
 import com.example.aistudy.model.Message
 import com.example.aistudy.model.ApiMessage
-import com.example.aistudy.model.ExpertType
 import com.example.aistudy.model.AiStructuredResponse
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +35,15 @@ class ChatViewModel : ViewModel() {
     // История сообщений для API (в формате ApiMessage)
     private val messageHistory = mutableListOf<ApiMessage>()
 
+    // Счетчик сообщений после последнего summary (пары user+assistant)
+    private var messageCountSinceLastSummary = 0
+
+    // Сохраненное summary предыдущих сообщений
+    private var conversationSummary: ApiMessage? = null
+
+    // Константа: создавать summary каждые 10 сообщений (пар user+assistant)
+    private val MESSAGES_BEFORE_SUMMARY = 10
+
     init {
         // Инициализируем API ключ при создании ViewModel
         val apiKey = ApiKeyProvider.getApiKey()
@@ -55,7 +63,22 @@ class ChatViewModel : ViewModel() {
     }
 
     /**
-     * Отправка сообщения в AI с получением 3 ответов с разными температурами
+     * Формирует список сообщений для отправки в API
+     * Если есть summary, отправляем summary + новые сообщения
+     * Иначе отправляем всю историю
+     */
+    private fun getMessagesToSend(): List<ApiMessage> {
+        return if (conversationSummary != null) {
+            // Если есть summary, отправляем его вместе с новыми сообщениями
+            listOf(conversationSummary!!) + messageHistory
+        } else {
+            // Иначе отправляем всю историю
+            messageHistory.toList()
+        }
+    }
+
+    /**
+     * Отправка сообщения в AI
      */
     fun sendMessage() {
         val inputText = _uiState.value.inputText.trim()
@@ -75,55 +98,46 @@ class ChatViewModel : ViewModel() {
         // Добавляем сообщение пользователя в историю для API
         messageHistory.add(ApiMessage(role = "user", content = inputText))
 
-        // Температуры для получения разных ответов
-        val temperatures = listOf(0.0, 0.7, 1.0)
-
-        // Отправляем запросы к AI с разными температурами
+        // Отправляем запрос к AI
         viewModelScope.launch {
-            val successfulResponses = mutableListOf<Pair<Double, AiStructuredResponse>>()
+            // Используем метод для получения оптимизированного списка сообщений
+            val messagesToSend = getMessagesToSend()
+            val result = aiAgent.askWithHistorySafe(messagesToSend)
 
-            for (temperature in temperatures) {
-                val result = aiAgent.askWithTemperatureSafe(messageHistory.toList(), temperature)
-
-                result.onSuccess { structuredResponse ->
-                    successfulResponses.add(temperature to structuredResponse)
-
-                    // Добавляем ответ AI в UI
-                    val aiMessage = Message(
-                        text = structuredResponse.agentMessage,
-                        isFromUser = false,
-                        structuredData = structuredResponse,
-                        temperature = temperature
+            result.onSuccess { structuredResponse ->
+                // Добавляем ответ AI в UI
+                val aiMessage = Message(
+                    text = structuredResponse.agentMessage,
+                    isFromUser = false,
+                    structuredData = structuredResponse
+                )
+                _uiState.update {
+                    it.copy(
+                        messages = it.messages + aiMessage,
+                        isLoading = false
                     )
-                    _uiState.update {
-                        it.copy(messages = it.messages + aiMessage)
-                    }
-                }.onFailure { error ->
-                    _uiState.update {
-                        it.copy(error = "Ошибка для температуры $temperature: ${error.message}")
-                    }
                 }
-            }
 
-            // Если получен хотя бы один ответ, добавляем последний в историю
-            if (successfulResponses.isNotEmpty()) {
-                // Берем ответ с температурой 0.7 как основной для истории
-                val mainResponse = successfulResponses.find { it.first == 0.7 }
-                    ?: successfulResponses.first()
-
-                val fullResponse = "{\"agentMessage\":\"${mainResponse.second.agentMessage}\"}"
+                // Добавляем ответ в историю для продолжения диалога
+                val fullResponse = "{\"agentMessage\":\"${structuredResponse.agentMessage}\"}"
                 messageHistory.add(ApiMessage(role = "assistant", content = fullResponse))
 
-                _uiState.update { it.copy(isLoading = false) }
-            } else {
-                // Удаляем последнее сообщение пользователя из истории при полной ошибке
+                // Увеличиваем счетчик сообщений (пара user + assistant = 1 сообщение)
+                messageCountSinceLastSummary++
+
+                // Проверяем, нужно ли создать summary
+                if (messageCountSinceLastSummary >= MESSAGES_BEFORE_SUMMARY) {
+                    createSummary()
+                }
+            }.onFailure { error ->
+                // Удаляем последнее сообщение пользователя из истории при ошибке
                 if (messageHistory.isNotEmpty()) {
                     messageHistory.removeAt(messageHistory.size - 1)
                 }
 
                 _uiState.update {
                     it.copy(
-                        error = "Не удалось получить ни одного ответа",
+                        error = "Ошибка: ${error.message}",
                         isLoading = false
                     )
                 }
@@ -132,10 +146,53 @@ class ChatViewModel : ViewModel() {
     }
 
     /**
+     * Создает summary предыдущих сообщений для оптимизации контекста
+     * Summary сохраняется и используется вместо старых сообщений
+     */
+    private suspend fun createSummary() {
+        if (messageHistory.isEmpty()) return
+
+        // Создаем специальный промпт для суммаризации
+        val summaryPrompt = """
+            Создай краткое резюме следующего диалога.
+            Сохрани ключевые темы, важные детали и контекст разговора.
+            Резюме должно быть достаточно информативным, чтобы продолжить разговор без потери контекста.
+            Отвечай строго в формате JSON: {"agentMessage": "текст резюме"}
+        """.trimIndent()
+
+        // Формируем историю для суммаризации: промпт + вся текущая история
+        val summaryRequest = messageHistory + listOf(
+            ApiMessage(role = "user", content = summaryPrompt)
+        )
+
+        // Отправляем запрос на создание summary
+        val result = aiAgent.askWithHistorySafe(summaryRequest)
+
+        result.onSuccess { structuredResponse ->
+            // Сохраняем summary как системное сообщение
+            conversationSummary = ApiMessage(
+                role = "system",
+                content = "Краткое резюме предыдущего разговора: ${structuredResponse.agentMessage}"
+            )
+
+            // Очищаем старую историю - теперь она заменена на summary
+            messageHistory.clear()
+
+            // Сбрасываем счетчик
+            messageCountSinceLastSummary = 0
+        }.onFailure { error ->
+            // Если не удалось создать summary, просто логируем и продолжаем работу
+            println("Не удалось создать summary: ${error.message}")
+        }
+    }
+
+    /**
      * Очистка истории сообщений
      */
     fun clearHistory() {
         messageHistory.clear()
+        conversationSummary = null
+        messageCountSinceLastSummary = 0
         _uiState.update { it.copy(messages = emptyList()) }
     }
 
