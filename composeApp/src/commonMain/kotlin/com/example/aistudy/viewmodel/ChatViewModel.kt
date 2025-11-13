@@ -41,8 +41,8 @@ class ChatViewModel : ViewModel() {
     // Сохраненное summary предыдущих сообщений
     private var conversationSummary: ApiMessage? = null
 
-    // Константа: создавать summary каждые 10 сообщений (пар user+assistant)
-    private val MESSAGES_BEFORE_SUMMARY = 10
+    // Константа: создавать summary каждые 3 сообщений (пар user+assistant)
+    private val MESSAGES_BEFORE_SUMMARY = 3
 
     init {
         // Инициализируем API ключ при создании ViewModel
@@ -148,22 +148,40 @@ class ChatViewModel : ViewModel() {
     /**
      * Создает summary предыдущих сообщений для оптимизации контекста
      * Summary сохраняется и используется вместо старых сообщений
+     * При наличии предыдущего summary создает инкрементальное summary (предыдущее + новые сообщения)
      */
     private suspend fun createSummary() {
         if (messageHistory.isEmpty()) return
 
-        // Создаем специальный промпт для суммаризации
-        val summaryPrompt = """
-            Создай краткое резюме следующего диалога.
-            Сохрани ключевые темы, важные детали и контекст разговора.
-            Резюме должно быть достаточно информативным, чтобы продолжить разговор без потери контекста.
-            Отвечай строго в формате JSON: {"agentMessage": "текст резюме"}
-        """.trimIndent()
+        // Формируем историю для суммаризации
+        val summaryRequest = if (conversationSummary != null) {
+            // Если есть предыдущее summary, создаем инкрементальное summary
+            val summaryPrompt = """
+                У тебя есть предыдущее резюме диалога и новые сообщения после него.
+                Создай обновленное краткое резюме, которое объединяет информацию из предыдущего резюме и новых сообщений.
+                Сохрани ключевые темы, важные детали и контекст всего разговора.
+                Резюме должно быть достаточно информативным, чтобы продолжить разговор без потери контекста.
+                В ответе пиши сразу резюме.
+                Отвечай строго в формате JSON: {"agentMessage": "текст резюме"}
+            """.trimIndent()
 
-        // Формируем историю для суммаризации: промпт + вся текущая история
-        val summaryRequest = messageHistory + listOf(
-            ApiMessage(role = "user", content = summaryPrompt)
-        )
+            // Включаем предыдущее summary + новые сообщения + промпт на суммаризацию
+            listOf(conversationSummary!!) + messageHistory + listOf(
+                ApiMessage(role = "user", content = summaryPrompt)
+            )
+        } else {
+            // Если это первое summary, создаем его из всей истории
+            val summaryPrompt = """
+                Создай краткое резюме следующего диалога.
+                Сохрани ключевые темы, важные детали и контекст разговора.
+                Резюме должно быть достаточно информативным, чтобы продолжить разговор без потери контекста.
+                Отвечай строго в формате JSON: {"agentMessage": "текст резюме"}
+            """.trimIndent()
+
+            messageHistory + listOf(
+                ApiMessage(role = "user", content = summaryPrompt)
+            )
+        }
 
         // Отправляем запрос на создание summary
         val result = aiAgent.askWithHistorySafe(summaryRequest)

@@ -142,15 +142,12 @@ fun MessageBubble(message: Message) {
                 modifier = Modifier.padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Заголовок (Вы или AI с температурой)
+                // Заголовок (Вы или AI)
                 Text(
                     text = if (message.isFromUser) {
                         "Вы"
                     } else {
-                        val label = message.expertType?.getDisplayName() ?: "AI"
-                        message.temperature?.let { temp ->
-                            "$label (температура: $temp)"
-                        } ?: label
+                        message.expertType?.getDisplayName() ?: "AI"
                     },
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
