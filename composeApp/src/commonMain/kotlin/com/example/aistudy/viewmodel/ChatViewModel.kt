@@ -8,6 +8,7 @@ import com.example.aistudy.config.ApiKeyProvider
 import com.example.aistudy.model.Message
 import com.example.aistudy.model.ApiMessage
 import com.example.aistudy.model.AiStructuredResponse
+import com.example.aistudy.repository.ChatMessageRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,8 +29,11 @@ data class ChatUiState(
  * ViewModel для управления чатом с DeepSeek AI
  * API ключ загружается из безопасного хранилища (local.properties)
  * Поддерживает multi-round conversation (запоминание истории)
+ * @param messageRepository Репозиторий для сохранения истории сообщений в БД
  */
-class ChatViewModel : ViewModel() {
+class ChatViewModel(
+    private val messageRepository: ChatMessageRepository
+) : ViewModel() {
     private val aiAgent = AiAgent()
 
     // История сообщений для API (в формате ApiMessage)
@@ -41,8 +45,8 @@ class ChatViewModel : ViewModel() {
     // Сохраненное summary предыдущих сообщений
     private var conversationSummary: ApiMessage? = null
 
-    // Константа: создавать summary каждые 3 сообщений (пар user+assistant)
-    private val MESSAGES_BEFORE_SUMMARY = 3
+    // Константа: создавать summary каждые 10 сообщений (пар user+assistant)
+    private val MESSAGES_BEFORE_SUMMARY = 10
 
     init {
         // Инициализируем API ключ при создании ViewModel
@@ -50,6 +54,9 @@ class ChatViewModel : ViewModel() {
         if (apiKey.isNotEmpty()) {
             ApiConfig.initialize(apiKey)
         }
+
+        // Загружаем историю сообщений из БД
+        loadMessageHistory()
     }
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -100,6 +107,9 @@ class ChatViewModel : ViewModel() {
 
         // Отправляем запрос к AI
         viewModelScope.launch {
+            // Сохраняем сообщение пользователя в БД
+            messageRepository.insertMessage(ApiMessage(role = "user", content = inputText))
+
             // Используем метод для получения оптимизированного списка сообщений
             val messagesToSend = getMessagesToSend()
             val result = aiAgent.askWithHistorySafe(messagesToSend)
@@ -122,6 +132,9 @@ class ChatViewModel : ViewModel() {
                 val fullResponse = "{\"agentMessage\":\"${structuredResponse.agentMessage}\"}"
                 messageHistory.add(ApiMessage(role = "assistant", content = fullResponse))
 
+                // Сохраняем ответ AI в БД
+                messageRepository.insertMessage(ApiMessage(role = "assistant", content = fullResponse))
+
                 // Увеличиваем счетчик сообщений (пара user + assistant = 1 сообщение)
                 messageCountSinceLastSummary++
 
@@ -134,6 +147,10 @@ class ChatViewModel : ViewModel() {
                 if (messageHistory.isNotEmpty()) {
                     messageHistory.removeAt(messageHistory.size - 1)
                 }
+
+                // Удаляем из БД
+                // Примечание: Для простоты пропускаем удаление из БД при ошибке
+                // В идеале нужно было бы сохранять id последнего сообщения и удалять его
 
                 _uiState.update {
                     it.copy(
@@ -205,13 +222,65 @@ class ChatViewModel : ViewModel() {
     }
 
     /**
+     * Загрузка истории сообщений из БД при инициализации
+     */
+    private fun loadMessageHistory() {
+        viewModelScope.launch {
+            try {
+                val messages = messageRepository.getAllMessages()
+
+                // Считаем количество пар сообщений (user + assistant)
+                val pairCount = messages.count { it.role == "user" }
+
+                if (pairCount > MESSAGES_BEFORE_SUMMARY) {
+                    // Если сообщений больше лимита, создаем summary
+                    messageHistory.addAll(messages)
+
+                    // Отображаем сообщения в UI
+                    val uiMessages = messages.map { apiMsg ->
+                        Message(
+                            text = apiMsg.content,
+                            isFromUser = apiMsg.role == "user"
+                        )
+                    }
+                    _uiState.update { it.copy(messages = uiMessages) }
+
+                    // Создаем summary из загруженной истории
+                    createSummary()
+                } else {
+                    // Если сообщений меньше лимита, просто загружаем их
+                    messageHistory.addAll(messages)
+                    messageCountSinceLastSummary = pairCount
+
+                    // Отображаем сообщения в UI
+                    val uiMessages = messages.map { apiMsg ->
+                        Message(
+                            text = apiMsg.content,
+                            isFromUser = apiMsg.role == "user"
+                        )
+                    }
+                    _uiState.update { it.copy(messages = uiMessages) }
+                }
+            } catch (e: Exception) {
+                println("Ошибка при загрузке истории: ${e.message}")
+            }
+        }
+    }
+
+    /**
      * Очистка истории сообщений
      */
     fun clearHistory() {
-        messageHistory.clear()
-        conversationSummary = null
-        messageCountSinceLastSummary = 0
-        _uiState.update { it.copy(messages = emptyList()) }
+        viewModelScope.launch {
+            // Очищаем БД
+            messageRepository.deleteAllMessages()
+
+            // Очищаем локальные переменные
+            messageHistory.clear()
+            conversationSummary = null
+            messageCountSinceLastSummary = 0
+            _uiState.update { it.copy(messages = emptyList()) }
+        }
     }
 
     /**

@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,9 +31,11 @@ fun ChatScreen(
     onInputChange: (String) -> Unit,
     onSendClick: () -> Unit,
     onErrorDismiss: () -> Unit,
+    onClearChat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
+    var showClearDialog by remember { mutableStateOf(false) }
 
     // Автопрокрутка к последнему сообщению
     LaunchedEffect(uiState.messages.size) {
@@ -40,10 +44,49 @@ fun ChatScreen(
         }
     }
 
+    // Диалог подтверждения очистки
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("Очистить чат?") },
+            text = { Text("Вся история сообщений будет удалена. Это действие нельзя отменить.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearDialog = false
+                        onClearChat()
+                    }
+                ) {
+                    Text("Очистить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("AI Chat Assistant") },
+                actions = {
+                    TextButton(
+                        onClick = { showClearDialog = true },
+                        enabled = uiState.messages.isNotEmpty()
+                    ) {
+                        Text(
+                            text = "Очистить",
+                            color = if (uiState.messages.isNotEmpty()) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.38f)
+                            }
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer

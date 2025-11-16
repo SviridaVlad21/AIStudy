@@ -1,0 +1,36 @@
+-- Таблица для хранения сообщений чата
+CREATE TABLE ChatMessage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+);
+
+-- Запросы для работы с сообщениями
+
+-- Получить все сообщения, отсортированные по времени
+getAllMessages:
+SELECT *
+FROM ChatMessage
+ORDER BY timestamp ASC;
+
+-- Получить количество сообщений
+getMessageCount:
+SELECT COUNT(*)
+FROM ChatMessage;
+
+-- Вставить новое сообщение
+insertMessage:
+INSERT INTO ChatMessage (role, content, timestamp)
+VALUES (?, ?, ?);
+
+-- Удалить все сообщения
+deleteAllMessages:
+DELETE FROM ChatMessage;
+
+-- Получить последние N сообщений
+getLastMessages:
+SELECT *
+FROM ChatMessage
+ORDER BY timestamp DESC
+LIMIT ?;
